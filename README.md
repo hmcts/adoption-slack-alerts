@@ -1,6 +1,7 @@
-# ET Slack Alerts
+# Adoption Slack Alerts
 
 ### A serverless Azure Function for Application Insights monitoring and alerts
+This project was forked from et-slack-alerts
 
 ## Overview
 
