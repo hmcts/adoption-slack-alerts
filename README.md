@@ -18,29 +18,11 @@ The function is scheduled to run every 5 minutes (customisable) and performs the
 - Builds a slack message containing a formatted table of unique event triggering operations in the given timeframe, with generated inline links to the relevant log histories.
 - Sends a slack alert (via an environment variable-defined webhook url)
 
-
-<figure>
-  <img width="520" alt="image" src="https://github.com/hmcts/et-slack-alerts/assets/18507008/7f0790ae-b49a-42e5-b704-2c0411e149ad">
-  <br/><figcaption>Example Slack alert</figcaption>
-</figure>
-
-
-## Justifications
-### Why Python?
-The reason for choosing Python in this specific instance was to address the ["cold start"](https://mikhail.io/serverless/coldstarts/azure/) problem. It has the lowest execution time variability of all language options, and is second only to C# in median cold start duration.
-
-<img width="689" alt="image" src="https://github.com/hmcts/et-slack-alerts/assets/18507008/ede8fc2a-3e2f-49ac-adb8-e1bcfbc096d8">
-
-
-### Costs
-This particular Azure function is [essentially free](https://azure.microsoft.com/en-gb/pricing/details/functions/#pricing) in terms of both executions (8640 per month, comfortably within the free tier limit of 1 million) and resource consumption (again, easily within the 400k GB-s free tier range).
-
-Alternatives to this approach generally use [Azure Monitor Alerts](https://azure.microsoft.com/en-gb/pricing/details/monitor/#pricing) which are more expensive ($1.50 per alert per month).
-
 ### Prerequisites
 - [Azure Functions Core Tools](https://learn.microsoft.com/en-us/azure/azure-functions/functions-run-local?tabs=macos%2Cisolated-process%2Cnode-v4%2Cpython-v2%2Chttp-trigger%2Ccontainer-apps&pivots=programming-language-csharp#install-the-azure-functions-core-tools)
 - [Python 3.7+](https://www.python.org/downloads/)
 - [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli)
+- [Azurite (for local development)](https://learn.microsoft.com/en-us/azure/storage/common/storage-use-azurite?tabs=npm%2Cblob-storage)
 - An Azure account/subscription
 - An [Azure Key Vault](https://azure.microsoft.com/en-gb/products/key-vault)
 - An [Application Insights](https://learn.microsoft.com/en-us/azure/azure-monitor/app/app-insights-overview?tabs=net) instance you want to monitor
@@ -56,15 +38,75 @@ This function requires several environment variables (defined within the given k
 
 **Note:** This application uses Azure AD authentication via managed identity to query Application Insights. API keys are deprecated and will be retired by March 31, 2026.
 
+## Slack Setup
+- Create a new Slack channel that will be destination for alerts.
+- Create a new Slack App from https://api.slack.com/apps (ensure you set the workspace to 'HMCTS DTS').
+- Create an Incoming Webhook for your new app. Note this action will trigger an approval request before it can be completed.
+
+## Azure Installation
+### Create Azure resources
+```
+az group create --name "adop-slack-alerts" --location "uksouth"
+ 
+az keyvault create --name "adop-slack-alerts" --resource-group "adop-slack-alerts"
+ 
+az storage account create --name "adopslackalertsstorage" --location "uksouth" --resource-group "adop-slack-alerts" --sku Standard_LRS
+ 
+az functionapp create --resource-group "adop-slack-alerts" --consumption-plan-location "uksouth" --runtime python --runtime-version 3.11 --functions-version 4 --name "adop-slack-alerts" --os-type linux --storage-account "adopslackalertsstorage"
+```
+
+See [here](https://github.com/hmcts/adoption-shared-infrastructure/blob/master/application-insights-access.tf)
+for infrastructure required for Application Insights access.
+
+### Add Managed Identity to the function app
+From the Azure portal:
+- Navigate to the adop-slack-alerts function app
+- Settings -> Identity
+- Select System Assigned
+- Toggle Status on
+- Save
+
+### Add function app to the key vault
+From the Azure portal:
+- Navigate to the adop-slack-alerts key vault
+- Access policies
+- Create
+- If this option is not available then you will need platops to create the access
+
+### Add tags to function app
+From the Azure portal:
+- Navigate to the adop-slack-alerts function app
+- Add tags
+
+```
+environment: staging
+Application: adoption
+businessArea: CFT
+ExpiresAfter: 3000-01-01
+builtFrom: https://github.com/hmcts/adop-slack-alerts
+```
+
+## Development
+### Setup
+#### Install Azurite
+```
+npm install -g azurite
+```
+
 ## Installation
 1. Clone the repository
 ```
-git clone https://github.com/hmcts/et-slack-alerts.git
+git clone https://github.com/hmcts/adop-slack-alerts.git
 ```
 2. Open the folder and install dependencies
 ```
 cd [wherever you cloned it]
+
 <optionally install a virtual environment using e.g. venv>
+python3 -m venv .venv
+source .venv/bin/activate
+</optionally>
+
 pip install -r requirements.txt
 ```
 3. Follow the [instructions here](https://learn.microsoft.com/en-us/azure/azure-functions/functions-get-started?pivots=programming-language-python) to get it running locally and published to a given resource group. If you need any help, feel free to reach out.
