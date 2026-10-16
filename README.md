@@ -47,12 +47,18 @@ This function requires several environment variables (defined within the given k
 ### Create Azure resources
 ```
 az group create --name "adop-slack-alerts" --location "uksouth"
- 
+
+## recommend to create the key vault on Azure portal, and choose Permission model = "Vault access policy" and grant yourself with all permission, otherwise you won't able to make any changes after creation
 az keyvault create --name "adop-slack-alerts" --resource-group "adop-slack-alerts"
  
 az storage account create --name "adopslackalertsstorage" --location "uksouth" --resource-group "adop-slack-alerts" --sku Standard_LRS
  
 az functionapp create --resource-group "adop-slack-alerts" --consumption-plan-location "uksouth" --runtime python --runtime-version 3.11 --functions-version 4 --name "adop-slack-alerts" --os-type linux --storage-account "adopslackalertsstorage"
+```
+
+Notes: add tagging if needed
+```
+--tags expiresAfter=3000-01-01 application=adoption BuiltFrom=https://github.com/hmcts/adoption-slack-alerts businessArea=CFT environment=staging
 ```
 
 See [here](https://github.com/hmcts/adoption-shared-infrastructure/blob/master/application-insights-access.tf)
@@ -64,59 +70,86 @@ From the Azure portal:
 - Settings -> Identity
 - Select System Assigned
 - Toggle Status on
+- Copy the ID for later use
 - Save
 
 ### Add function app to the key vault
 From the Azure portal:
 - Navigate to the adop-slack-alerts key vault
 - Access policies
-- Create
-- If this option is not available then you will need platops to create the access
-
-### Add tags to function app
-From the Azure portal:
-- Navigate to the adop-slack-alerts function app
-- Add tags
-
-```
-environment: staging
-Application: adoption
-businessArea: CFT
-ExpiresAfter: 3000-01-01
-builtFrom: https://github.com/hmcts/adop-slack-alerts
-```
+- Create and add the function ID
+- If this option is not available then you can either: 
+  - ask platops to create the access 
+  - **OR** Recreate the key vault with "Permission model = Vault access policy" and grant yourself with all permission.
+- You will also need to ensure that the Function App has the proper access:
+   - Assign a managed identity to your Function App.
+   - Navigate to `Key Vault` -> `Access Policies` -> `Add Access Policy`. Select `Get` for secrets.
+   - For `Select principal`, choose your Function App's identity.
+   - Navigate to your Application Insights resource -> `Access Control (IAM)` -> `Add role assignment`.
+   - Select the `Monitoring Reader` role and assign it to your Function App's managed identity.
+   - This allows the function to query Application Insights using Azure AD authentication.
 
 ## Development
-### Setup
-#### Install Azurite
-```
-npm install -g azurite
-```
-
-## Installation
+### Local Setup
 1. Clone the repository
-```
+```bash
 git clone https://github.com/hmcts/adop-slack-alerts.git
 ```
 2. Open the folder and install dependencies
-```
-cd [wherever you cloned it]
+```bash
+cd <wherever you cloned it>
 
-<optionally install a virtual environment using e.g. venv>
+# (optional) install a virtual environment using e.g. venv>
 python3 -m venv .venv
 source .venv/bin/activate
-</optionally>
+# end of optional
 
 pip install -r requirements.txt
 ```
-3. Follow the [instructions here](https://learn.microsoft.com/en-us/azure/azure-functions/functions-get-started?pivots=programming-language-python) to get it running locally and published to a given resource group. If you need any help, feel free to reach out.
-4. You will also need to ensure that the Function App has the proper access:
-- Assign a managed identity to your Function App.
-- Navigate to `Key Vault` -> `Access Policies` -> `Add Access Policy`. Select `Get` for secrets.
-- For `Select principal`, choose your Function App's identity.
-- Navigate to your Application Insights resource -> `Access Control (IAM)` -> `Add role assignment`.
-- Select the `Monitoring Reader` role and assign it to your Function App's managed identity.
-  - This allows the function to query Application Insights using Azure AD authentication.
+
+3. Install Azurite
+```bash
+npm install -g azurite
+```
+(Optional) if you don't have permission to install globally, you can change the directory npm global to somewhere you have permission, e.g. ~/
+
+```bash
+# check your npm global directory
+npm config get prefix
+# change it to somewhere you have permission, e.g. ~/npm
+npm config set prefix ~/npm
+# check your npm global directory has been changed
+npm config get prefix     
+```
+
+4. Create local.settings.json file in alerts folder
+```json
+{
+    "IsEncrypted": false,
+    "Values": {
+      "FUNCTIONS_WORKER_RUNTIME": "python",
+      "AzureWebJobsFeatureFlags": "EnableWorkerIndexing",
+      "AzureWebJobsStorage": "UseDevelopmentStorage=true"
+    }
+}
+```
+
+### Local Testing
+First start Azurite in another tab (with npx if needed)
+```bash
+azurite --silent .azurite
+````
+
+To install azure functions core tools, follow the instructions [here](https://learn.microsoft.com/en-us/azure/azure-functions/functions-core-tools-reference).
+
+To learn Azure function [here](https://learn.microsoft.com/en-us/azure/azure-functions/functions-get-started?pivots=programming-language-python) 
+
+To test function locally:
+```bash
+# From the alerts directory
+cd alerts
+func start
+```
 
 ## Deployment
 
@@ -125,12 +158,8 @@ To deploy the function to Azure:
 ```bash
 # From the alerts directory
 cd alerts
-func azure functionapp publish <your-function-app-name>
+func azure functionapp publish adop-slack-alerts
 ```
-
-### Todo
-- Investigate whether it's worth adding a slight delay on log checking to compensate for [Azure's logging latency](https://learn.microsoft.com/en-us/azure/azure-monitor/logs/data-ingestion-time).
-- Use the same link generation approach for [Azure Monitor Transaction Logs](https://learn.microsoft.com/en-us/azure/azure-monitor/app/transaction-diagnostics).
 
 ### Contributing
 
